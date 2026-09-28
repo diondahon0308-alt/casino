@@ -152,7 +152,7 @@ input[type=number], select{
 
   <div id="treasurerBox"></div>
   <div class="mem-row" id="tierRow"></div>
-  <p class="mem-note">Membership fee is charged every 2 hours (12×/day), only on days the Casino is open.</p>
+  <p class="mem-note">Membership fee is a percentage of your balance, charged every 6 hours (4×/day), only on days the Casino is open.</p>
 
   <div class="panel" id="loanPanel"></div>
 
@@ -218,13 +218,14 @@ input[type=number], select{
 
   const TIER_LABELS = {1:'I',2:'II',3:'III',4:'IV',5:'V',6:'VI',7:'VIP'};
 
+  const FEE_INTERVAL_HOURS = 6; // how often membership fees are charged
   const MEMBERSHIPS = [
-    { id:'free',  name:'Free Trial',  fee:0,  maxTier:1 },
-    { id:'paid',  name:'Paid Trial',  fee:2,  maxTier:3 },
-    { id:'pro',   name:'Pro Trial',   fee:5,  maxTier:4 },
-    { id:'star',  name:'Star Trial',  fee:8,  maxTier:5 },
-    { id:'royal', name:'Royal Trial', fee:10, maxTier:6 },
-    { id:'vip',   name:'VIP Trial',   fee:15, maxTier:7 },
+    { id:'free',  name:'Free Trial',  pct:0,  maxTier:1 },
+    { id:'paid',  name:'Paid Trial',  pct:1,  maxTier:3 },
+    { id:'pro',   name:'Pro Trial',   pct:2,  maxTier:4 },
+    { id:'star',  name:'Star Trial',  pct:4,  maxTier:5 },
+    { id:'royal', name:'Royal Trial', pct:6,  maxTier:6 },
+    { id:'vip',   name:'VIP Trial',   pct:10, maxTier:7 },
   ];
   const currentMembership = () => MEMBERSHIPS.find(m => m.id === state.membership) || MEMBERSHIPS[0];
   const currentMaxTier = () => state.cheatUnlockAll ? 99 : currentMembership().maxTier;
@@ -239,13 +240,13 @@ input[type=number], select{
       state.casinoOpenDate = today;
       state.casinoOpenToday = Math.random() < 0.7;
     }
-    const periodKey = Math.floor(Date.now() / (2*3600*1000)).toString();
+    const periodKey = Math.floor(Date.now() / (FEE_INTERVAL_HOURS*3600*1000)).toString();
     if(state.casinoOpenToday && state.lastChargeDay !== periodKey){
-      const fee = currentMembership().fee;
+      const fee = Math.round(state.balance * currentMembership().pct / 100);
       state.lastChargeDay = periodKey;
       if(fee > 0){
         state.balance = Math.max(0, state.balance - fee);
-        pushLog(`${currentMembership().name} fee charged (every 2h): -${fmt(fee)}`, false);
+        pushLog(`${currentMembership().name} fee charged (every ${FEE_INTERVAL_HOURS}h): -${fmt(fee)}`, false);
       }
     }
     if(state.loan){
@@ -418,7 +419,7 @@ input[type=number], select{
       "You're already at the top. I have nothing left to sell you. Enjoy.",
     ].concat(base.slice(0,1));
     return base.concat([
-      `Upgrade to ${next.name} for ${fmt(next.fee)} every 2 hours and unlock Tier ${TIER_LABELS[next.maxTier]}.`,
+      `Upgrade to ${next.name} for ${next.pct}% of your balance every ${FEE_INTERVAL_HOURS} hours and unlock Tier ${TIER_LABELS[next.maxTier]}.`,
       idx === 0 ? "Free Trial is fine for a start, but real players hold a membership."
                 : `Still on ${currentMembership().name}? ${next.name} has tables you're missing out on.`,
     ]);
@@ -446,7 +447,7 @@ input[type=number], select{
     MEMBERSHIPS.forEach(m => {
       const b = document.createElement('button');
       b.className = 'mem-btn' + (state.membership === m.id ? ' active' : '');
-      b.innerHTML = `${m.name}<br>${m.fee === 0 ? 'free' : fmt(m.fee) + '/2h'}`;
+      b.innerHTML = `${m.name}<br>${m.pct === 0 ? 'free' : m.pct + '%/' + FEE_INTERVAL_HOURS + 'h'}`;
       b.addEventListener('click', () => { state.membership = m.id; save(); renderAll(); });
       tierRowEl.appendChild(b);
     });
