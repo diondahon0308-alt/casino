@@ -89,6 +89,11 @@ input[type=number], select{
 }
 .result.win{background:rgba(95,184,122,0.15); color:var(--win); border:1px solid var(--win);}
 .result.lose{background:rgba(200,92,78,0.15); color:var(--lose); border:1px solid var(--lose);}
+.result.drunk{background:rgba(217,178,76,0.18); color:var(--gold); border:1px solid var(--gold);}
+.drunk-txt{color:var(--gold);}
+.bar-msg{font-size:0.8rem; margin:0 0 12px; padding:9px 10px; border-radius:8px; background:var(--felt3); border:1px solid var(--gold-dim); color:var(--gold);}
+@keyframes barFlash{ 0%{background:rgba(217,178,76,0.35);} 100%{background:transparent;} }
+.panel.bar-flash{animation:barFlash 700ms ease-out;}
 .rocket-live{text-align:center; padding:10px 0;}
 .rocket-mult{font-size:2.2rem; font-weight:700; color:var(--gold);}
 
@@ -122,6 +127,13 @@ input[type=number], select{
 .mem-btn.active{border-color:var(--gold); color:var(--gold); font-weight:700;}
 .mem-note{font-size:0.7rem; color:var(--ink-dim); text-align:center; margin:0 0 16px;}
 .loan-warn{color:var(--lose); font-weight:700;}
+.bar-flash{background:var(--felt2); border:1px solid var(--gold); border-radius:10px; padding:10px 12px; margin-bottom:12px; font-size:0.82rem; color:var(--gold);}
+.backpack-item{display:flex; justify-content:space-between; align-items:center; background:var(--felt3); border:1px solid var(--line);
+  border-radius:10px; padding:10px 12px; margin-bottom:8px;}
+.backpack-item .biname{font-size:0.88rem;}
+.backpack-item .biqty{color:var(--ink-dim); font-size:0.72rem; margin-top:2px;}
+.use-btn{background:var(--gold); color:#20180a; border:none; border-radius:8px; padding:7px 14px; font-weight:700; font-size:0.8rem; cursor:pointer; font-family:inherit;}
+.use-btn:disabled{opacity:0.4; cursor:not-allowed;}
 .npc{display:flex; gap:10px; align-items:flex-start; background:var(--felt3); border:1px dashed var(--gold-dim);
   border-radius:12px; padding:10px 12px; margin-bottom:12px; cursor:pointer;}
 .npc .face{font-size:1.5rem; line-height:1;}
@@ -158,6 +170,8 @@ input[type=number], select{
 
   <div class="panel" id="barPanel"></div>
 
+  <div class="panel" id="backpackPanel"></div>
+
   <div id="dealerBox"></div>
   <div class="games-grid" id="gamesGrid"></div>
 
@@ -183,6 +197,7 @@ input[type=number], select{
     return { balance: START_BALANCE, membership:'free', log: [],
       lastChargeDay: null, casinoOpenDate: null, casinoOpenToday: true, loan: null,
       drunkenness: 0, luck: 0, lastEffectUpdate: Date.now(),
+      totemBonus: 0, totemExpiresAt: 0, lastPayout: 0, drunkCap: 50, inventory: {},
       cheatWin100: false, cheatUnlockAll: false,
       accountName: '', accountPassword: '' };
   }
@@ -211,6 +226,7 @@ input[type=number], select{
   const statusEl = document.getElementById('statusBanner');
   const loanPanelEl = document.getElementById('loanPanel');
   const barPanelEl = document.getElementById('barPanel');
+  const backpackPanelEl = document.getElementById('backpackPanel');
   const accountPanelEl = document.getElementById('accountPanel');
   let manualOpen = false;
 
@@ -285,8 +301,8 @@ input[type=number], select{
     { id:'lottery', name:'Fortune Lottery', tier:4, fee:25, maxTakeout:750000,
       desc:'Pick exact, short-range, or long-range odds. It\u2019s a 1% shot no matter what — but the payout scales with how precise you were.', maxBet:150000,
       render: renderLottery, play: null },
-    { id:'buddyrace', name:'Buddy Race', tier:4, fee:10, maxTakeout:null,
-      desc:'Pick one of 5 Buddies. Equal odds, winner takes the pot.', maxBet:0,
+    { id:'buddyrace', name:'Buddy Race', tier:4, fee:10, maxTakeout:300000,
+      desc:'Pick one of 5 Buddies. Equal odds, winner takes the pot.', maxBet:100000,
       render: renderBuddyRace, play: null },
     { id:'cointoss', name:'Coin Toss', tier:5, fee:10, maxTakeout:750000,
       desc:'Heads or Tails. Guess right and win 3× your bet on top of keeping it, wrong loses it all.', maxBet:250000,
@@ -353,6 +369,7 @@ input[type=number], select{
       "Loosen up a little. Some games love a slightly tipsy player.",
       "Vodka and Supershots are for the serious players. Tier IV and up.",
       "Everything's priced to keep you spinning. Tab's always open.",
+      "New in stock: a Blessing Totem. Luck that fades fast, but fades faster if you keep winning.",
     ];
   }
   function loansharkPool(){
@@ -369,6 +386,7 @@ input[type=number], select{
         "Three days. That's the deal. Don't make me come find you.",
         "Interest-free, sure. But my patience? That costs extra.",
         "Every day you wait is a day closer to me cleaning out your pockets.",
+        "You can pay it off in pieces, you know. Doesn't have to be all at once.",
       ];
     }
     if(isBankrupt()) return [
@@ -425,23 +443,6 @@ input[type=number], select{
     ]);
   }
 
-  function renderTiers(){
-    renderTiersInner();
-    document.getElementById('treasurerBox').innerHTML = npcBox('treasurer', treasurerPool());
-  }
-  function renderLoanPanel(){
-    renderLoanInner();
-    loanPanelEl.insertAdjacentHTML('afterbegin', npcBox('loanshark', loansharkPool()));
-  }
-  function renderBar(){
-    renderBarInner();
-    barPanelEl.insertAdjacentHTML('afterbegin', npcBox('bartender', bartenderPool()));
-  }
-  function renderGrid(){
-    document.getElementById('dealerBox').innerHTML = npcBox('dealer', dealerPool());
-    renderGridInner();
-  }
-
   function renderTiersInner(){
     tierRowEl.innerHTML = '';
     MEMBERSHIPS.forEach(m => {
@@ -452,6 +453,10 @@ input[type=number], select{
       tierRowEl.appendChild(b);
     });
     tierEl.textContent = currentMembership().name;
+  }
+  function renderTiers(){
+    renderTiersInner();
+    document.getElementById('treasurerBox').innerHTML = npcBox('treasurer', treasurerPool());
   }
 
   function renderStatus(){
@@ -473,16 +478,40 @@ input[type=number], select{
         <h2 style="margin:0 0 8px;font-size:1rem;color:var(--gold)">Bank Loan</h2>
         <p class="desc" style="margin:0 0 10px">You owe <b>${fmt(state.loan.amount)}</b>.
         <span class="loan-warn">Repay within ${Math.floor(daysLeft)}d ${hrs}h or the Loan Sharks wipe your balance.</span></p>
-        <button class="play-btn" id="repayBtn">Repay ${fmt(state.loan.amount)}</button>`;
-      document.getElementById('repayBtn').addEventListener('click', () => {
-        if(state.balance >= state.loan.amount){
-          state.balance -= state.loan.amount;
-          pushLog(`Repaid loan of ${fmt(state.loan.amount)}`, true);
-          state.loan = null;
-          save(); renderAll();
-        } else {
-          alertInline(loanPanelEl, `You need ${fmt(state.loan.amount)} to repay — you only have ${fmt(state.balance)}.`);
+        <div class="row"><input type="number" id="repayInput" min="1" placeholder="Amount to repay"></div>
+        <button class="play-btn" id="repayBtn">Repay Amount</button>
+        <button class="play-btn" id="repayAllBtn" style="margin-top:8px;background:var(--felt3);color:var(--ink);border:1px solid var(--line)">Repay All (${fmt(state.loan.amount)})</button>
+        <p class="desc" style="margin:14px 0 8px">Need more cash? Borrowing more adds to what you owe, and the deadline stays the same.</p>
+        <div class="row"><input type="number" id="moreInput" min="1" placeholder="Borrow more"></div>
+        <button class="play-btn" id="moreBtn" style="background:var(--felt3);color:var(--ink);border:1px solid var(--line)">Borrow More</button>`;
+      function doRepay(amt){
+        if(!amt || amt <= 0) return;
+        amt = Math.min(amt, state.loan.amount);
+        if(amt > state.balance){
+          alertInline(loanPanelEl, `You only have ${fmt(state.balance)} — you can\u2019t repay ${fmt(amt)} yet.`);
+          return;
         }
+        state.balance -= amt;
+        state.loan.amount -= amt;
+        if(state.loan.amount <= 0){
+          pushLog(`Repaid the loan in full`, true);
+          state.loan = null;
+        } else {
+          pushLog(`Repaid ${fmt(amt)} — ${fmt(state.loan.amount)} still owed`, true);
+        }
+        save(); renderAll();
+      }
+      document.getElementById('repayBtn').addEventListener('click', () => {
+        doRepay(parseInt(document.getElementById('repayInput').value, 10));
+      });
+      document.getElementById('repayAllBtn').addEventListener('click', () => doRepay(state.loan.amount));
+      document.getElementById('moreBtn').addEventListener('click', () => {
+        const amt = parseInt(document.getElementById('moreInput').value, 10);
+        if(!amt || amt <= 0) return;
+        state.balance += amt;
+        state.loan.amount += amt;
+        pushLog(`Borrowed ${fmt(amt)} more — now owe ${fmt(state.loan.amount)}`, true);
+        save(); renderAll();
       });
     } else {
       loanPanelEl.innerHTML = `
@@ -500,6 +529,18 @@ input[type=number], select{
       });
     }
   }
+  function renderLoanPanel(){
+    renderLoanInner();
+    loanPanelEl.insertAdjacentHTML('afterbegin', npcBox('loanshark', loansharkPool()));
+  }
+  function renderBar(){
+    renderBarInner();
+    barPanelEl.insertAdjacentHTML('afterbegin', npcBox('bartender', bartenderPool()));
+  }
+  function renderGrid(){
+    document.getElementById('dealerBox').innerHTML = npcBox('dealer', dealerPool());
+    renderGridInner();
+  }
 
   function alertInline(container, msg){
     const n = document.createElement('p');
@@ -516,7 +557,19 @@ input[type=number], select{
     { id:'shamrock', name:'🍀 Shamrock Shake', cost:500, drunk:10, luck:30 },
     { id:'supershot', name:'🥤 Supershot', cost:500, drunk:50, luck:0, minTier:4 },
     { id:'cleanser', name:'🧼 Cleanser', cost:300, drunk:'clear', luck:0 },
+    { id:'totem', name:'🪦 Blessing Totem', cost:600, drunk:0, luck:0, totem:true, minTier:4 },
+    { id:'drunkometer', name:'📟 Drunkometer', cost:800, drunk:0, luck:0, raisesCap:true, minTier:4 },
+    { id:'dice', name:'🎲 Dice', cost:400, drunk:0, luck:0, doublesLast:true },
+    { id:'powder', name:'💨 Powder', cost:250, drunk:0, luck:0, powder:true },
   ];
+  function itemNote(item){
+    if(item.totem) return '+50% luck for 1 minute, -10% off it with every win while active';
+    if(item.raisesCap) return 'Permanently raises your max drunkenness from 50% to 100%';
+    if(item.doublesLast) return 'Double or nothing your most recent payout — 50/50';
+    if(item.powder) return '40% chance +10% drunkenness, 60% chance -10% drunkenness';
+    if(item.drunk === 'clear') return 'Clears drunkenness to 0';
+    return (item.drunk ? '+' + item.drunk + '% drunkenness ' : '') + (item.luck ? '+' + item.luck + '% luck' : '');
+  }
   function applyDecay(){
     const now = Date.now();
     const last = state.lastEffectUpdate || now;
@@ -527,8 +580,53 @@ input[type=number], select{
       state.lastEffectUpdate = now;
     }
   }
-  function winBonus(){ return Math.min(0.45, state.drunkenness*0.0025 + state.luck*0.01); }
+  function totemActive(){ return state.totemBonus > 0 && Date.now() < state.totemExpiresAt; }
+  function winBonus(){
+    const totem = totemActive() ? state.totemBonus/100 : 0;
+    return Math.min(0.75, state.drunkenness*0.0025 + state.luck*0.01 + totem);
+  }
 
+  // Applies an item's real effect — called when used from the Backpack.
+  function useItem(id){
+    const item = BAR_ITEMS.find(i => i.id === id);
+    if(!item || !state.inventory[id]) return;
+    let resultMsg = '';
+    if(item.totem){
+      state.totemBonus = 50;
+      state.totemExpiresAt = Date.now() + 60000;
+      resultMsg = 'Blessing Totem activated — +50% luck for 1 minute.';
+    } else if(item.raisesCap){
+      state.drunkCap = 100;
+      resultMsg = 'Drunkometer used — your drunkenness cap is now 100%.';
+    } else if(item.doublesLast){
+      if(!state.lastPayout || state.lastPayout <= 0){
+        resultMsg = 'No recent payout to double — Dice fizzles, nothing happens.';
+      } else {
+        const amt = state.lastPayout;
+        const win = Math.random() < 0.5;
+        state.balance = Math.max(0, state.balance + (win ? amt : -amt));
+        resultMsg = win ? `Dice doubled your last payout — won another ${fmt(amt)}!` : `Dice busted — lost ${fmt(amt)} of your last payout.`;
+        state.lastPayout = 0;
+      }
+    } else if(item.powder){
+      const gain = Math.random() < 0.4;
+      state.drunkenness = gain ? Math.min(state.drunkCap, state.drunkenness + 10) : Math.max(0, state.drunkenness - 10);
+      resultMsg = gain ? 'Powder made you +10% more drunk.' : 'Powder sobered you up -10%.';
+    } else if(item.drunk === 'clear'){
+      state.drunkenness = 0;
+      resultMsg = 'Cleanser used — drunkenness cleared.';
+    } else {
+      state.drunkenness = Math.min(state.drunkCap, state.drunkenness + item.drunk);
+      state.luck = Math.min(50, state.luck + (item.luck||0));
+      resultMsg = `Used ${item.name}.`;
+    }
+    state.inventory[id] = Math.max(0, (state.inventory[id]||0) - 1);
+    if(state.inventory[id] === 0) delete state.inventory[id];
+    pushLog(resultMsg, true);
+    save(); renderAll();
+  }
+
+  let barFlashText = '', barFlashUntil = 0;
   function renderBarInner(){
     if(isBankrupt()){
       barPanelEl.innerHTML = `<h2 style="margin:0 0 6px;font-size:1rem;color:var(--gold)">The Bar</h2><p class="desc" style="margin:0">Closed to you while bankrupt.</p>`;
@@ -538,27 +636,54 @@ input[type=number], select{
       barPanelEl.innerHTML = `<h2 style="margin:0 0 6px;font-size:1rem;color:var(--gold)">The Bar</h2><p class="desc" style="margin:0">Unlocks at Paid Trial (Tier III) and above.</p>`;
       return;
     }
+    const flash = Date.now() < barFlashUntil ? `<div class="bar-flash">✅ ${barFlashText}</div>` : '';
     barPanelEl.innerHTML = `<h2 style="margin:0 0 6px;font-size:1rem;color:var(--gold)">The Bar</h2>
-      <p class="desc" style="margin:0 0 10px">Drunkenness ${state.drunkenness}% (+${(state.drunkenness*0.25).toFixed(1)}% win chance) · Luck ${state.luck}% — both decay 1%/min. Boosts apply to Double or Nothing, Rocket Ship, and Squid Games.</p>
+      <p class="desc" style="margin:0 0 10px">Drunkenness ${state.drunkenness}% / ${state.drunkCap}% cap (+${(state.drunkenness*0.25).toFixed(1)}% win chance) · Luck ${state.luck}% — both decay 1%/min. ${totemActive() ? `Blessing Totem active: +${state.totemBonus}% luck, fades in ${Math.max(0, Math.ceil((state.totemExpiresAt - Date.now())/1000))}s or after a couple more wins.` : ''} Boosts apply to Double or Nothing, Rocket Ship, and Squid Games. Buying something here sends it to your Backpack below — use it from there.</p>
+      ${flash}
       <div class="games-grid" id="barGrid" style="grid-template-columns:1fr"></div>`;
     const grid = document.getElementById('barGrid');
     BAR_ITEMS.forEach(item => {
       const locked = item.minTier && currentMaxTier() < item.minTier;
+      const owned = item.raisesCap && state.drunkCap >= 100;
       const b = document.createElement('button');
-      b.className = 'game-card' + (locked ? ' locked' : '');
-      b.innerHTML = `<span class="gname">${item.name} — ${fmt(item.cost)}</span><span class="gtier">${item.drunk==='clear' ? 'Clears drunkenness to 0' : (item.drunk ? '+' + item.drunk + '% drunkenness ' : '') + (item.luck ? '+' + item.luck + '% luck' : '')}${locked ? ' — locked' : ''}</span>`;
-      if(!locked){
+      b.className = 'game-card' + (locked || owned ? ' locked' : '');
+      b.innerHTML = `<span class="gname">${item.name} — ${owned ? 'Owned' : fmt(item.cost)}</span><span class="gtier">${itemNote(item)}${locked ? ' — locked' : ''}${owned ? ' — already at 100%' : ''}</span>`;
+      if(!locked && !owned){
         b.addEventListener('click', () => {
           if(state.balance < item.cost) return;
           state.balance -= item.cost;
-          if(item.drunk === 'clear') state.drunkenness = 0;
-          else state.drunkenness = Math.min(100, state.drunkenness + item.drunk);
-          state.luck = Math.min(50, state.luck + (item.luck||0));
+          state.inventory[item.id] = (state.inventory[item.id]||0) + 1;
+          barFlashText = `${item.name} added to your Backpack.`;
+          barFlashUntil = Date.now() + 4000;
           pushLog(`Bought ${item.name}`, true);
           save(); renderAll();
         });
       }
       grid.appendChild(b);
+    });
+  }
+
+  function renderBackpack(){
+    const ids = Object.keys(state.inventory).filter(id => state.inventory[id] > 0);
+    if(ids.length === 0){
+      backpackPanelEl.innerHTML = `<h2 style="margin:0 0 6px;font-size:1rem;color:var(--gold)">Backpack</h2><p class="desc" style="margin:0">Empty. Buy something from the Bar first.</p>`;
+      return;
+    }
+    backpackPanelEl.innerHTML = `<h2 style="margin:0 0 8px;font-size:1rem;color:var(--gold)">Backpack</h2>`;
+    ids.forEach(id => {
+      const item = BAR_ITEMS.find(i => i.id === id);
+      if(!item) return;
+      const disabled = item.doublesLast && (!state.lastPayout || state.lastPayout <= 0);
+      const row = document.createElement('div');
+      row.className = 'backpack-item';
+      row.innerHTML = `<div><div class="biname">${item.name}</div><div class="biqty">${itemNote(item)} · ×${state.inventory[id]}</div></div>`;
+      const useBtn = document.createElement('button');
+      useBtn.className = 'use-btn';
+      useBtn.textContent = disabled ? 'Nothing to use it on' : 'Use';
+      useBtn.disabled = disabled;
+      if(!disabled) useBtn.addEventListener('click', () => useItem(id));
+      row.appendChild(useBtn);
+      backpackPanelEl.appendChild(row);
     });
   }
 
@@ -585,8 +710,8 @@ input[type=number], select{
     balanceEl.textContent = fmt(state.balance);
   }
 
-  function pushLog(text, positive){
-    state.log.unshift({ text, positive, time: new Date().toLocaleTimeString(undefined,{hour:'2-digit',minute:'2-digit'}) });
+  function pushLog(text, positive, obscured){
+    state.log.unshift({ text, positive, obscured: !!obscured, time: new Date().toLocaleTimeString(undefined,{hour:'2-digit',minute:'2-digit'}) });
     state.log = state.log.slice(0, 25);
     save();
   }
@@ -596,9 +721,13 @@ input[type=number], select{
       logEl.innerHTML = '<li class="empty">No games played yet.</li>';
       return;
     }
-    logEl.innerHTML = state.log.map(e =>
-      `<li><span class="${e.positive ? 'win-txt' : 'lose-txt'}">${e.text}</span><span>${e.time}</span></li>`
-    ).join('');
+    const stillDrunk = state.drunkenness >= 5;
+    logEl.innerHTML = state.log.map(e => {
+      if(e.obscured && stillDrunk){
+        return `<li><span class="drunk-txt">🟡 Did you win or lose?</span><span>${e.time}</span></li>`;
+      }
+      return `<li><span class="${e.positive ? 'win-txt' : 'lose-txt'}">${e.text}</span><span>${e.time}</span></li>`;
+    }).join('');
   }
 
   function renderPanel(){
@@ -623,19 +752,39 @@ input[type=number], select{
   }
 
   function renderAll(){
-    renderTiers(); renderStatus(); renderLoanPanel(); renderBar(); renderAccount(); renderGrid(); renderBalance(); renderPanel(); renderLog();
+    renderTiers(); renderStatus(); renderLoanPanel(); renderBar(); renderBackpack(); renderAccount(); renderGrid(); renderBalance(); renderPanel(); renderLog();
   }
 
-  function settle(net, fee, resultEl, winText, loseText){
+  function settle(bet, net, fee, resultEl, winText, loseText){
     if(state.cheatWin100 && net <= 0){
       net = Math.abs(net) || fee || 1000;
       winText = winText || 'Cheat: forced win';
     }
+    const activeG = GAMES.find(x => x.id === activeGame);
+    if(activeG && activeG.maxTakeout && net > 0){
+      const totalPayout = (bet||0) + net;
+      if(totalPayout > activeG.maxTakeout){
+        net = activeG.maxTakeout - (bet||0);
+        winText = winText ? winText + ` (capped at the ${fmt(activeG.maxTakeout)} max payout)` : winText;
+      }
+    }
     state.balance = Math.max(0, state.balance - fee + net);
-    save();
     const positive = net > 0;
-    resultEl.innerHTML = `<div class="result ${positive ? 'win' : 'lose'}">${positive ? winText : loseText}</div>`;
-    pushLog(`${positive ? winText : loseText}`, positive);
+    if(positive){
+      state.lastPayout = net;
+      if(totemActive()){
+        state.totemBonus = Math.max(0, state.totemBonus - 10);
+        if(state.totemBonus <= 0) state.totemExpiresAt = 0;
+      }
+    }
+    save();
+    const obscured = state.drunkenness >= 5;
+    if(obscured){
+      resultEl.innerHTML = `<div class="result drunk">🟡 Did you win or lose? You're too drunk to tell. Sober up below 5% drunkenness to find out.</div>`;
+    } else {
+      resultEl.innerHTML = `<div class="result ${positive ? 'win' : 'lose'}">${positive ? winText : loseText}</div>`;
+    }
+    pushLog(`${positive ? winText : loseText}`, positive, obscured);
     renderBalance();
   }
 
@@ -649,8 +798,10 @@ input[type=number], select{
     const input = document.getElementById('betInput');
     let bet = parseInt(input ? input.value : 0, 10);
     if(!bet || bet <= 0) return null;
-    if(bet > state.balance) bet = state.balance;
-    if(maxBet && bet > maxBet) bet = maxBet;
+    let clamped = false;
+    if(bet > state.balance){ bet = state.balance; clamped = true; }
+    if(maxBet && bet > maxBet){ bet = maxBet; clamped = true; }
+    if(clamped && input) input.value = bet;
     return bet;
   }
 
@@ -665,7 +816,7 @@ input[type=number], select{
     if(!bet) return;
     const win = Math.random() < (0.5 + winBonus());
     const net = win ? bet : -bet;
-    settle(net, 0, resultEl, `Won ${fmt(bet)} on Double or Nothing`, `Lost ${fmt(bet)} on Double or Nothing`);
+    settle(bet, net, 0, resultEl, `Won ${fmt(bet)} on Double or Nothing`, `Lost ${fmt(bet)} on Double or Nothing`);
   }
 
   // --- Card Roulette ---
@@ -701,7 +852,7 @@ input[type=number], select{
       else if(valueHit){ mult = 2; win = true; }
       else if(suitHit){ mult = 1.5; win = true; }
       const net = win ? bet*(mult-1) : -bet;
-      settle(net, 0, resultEl,
+      settle(bet, net, 0, resultEl,
         `Card was ${drawnSuit}${drawnValue} — won ${fmt(bet*(mult-1))}`,
         `Card was ${drawnSuit}${drawnValue} — lost ${fmt(bet)}`);
     });
@@ -736,7 +887,7 @@ input[type=number], select{
       const mult = correct ? 1.5 : (2/3);
       const net = bet*(mult-1);
       state._hilo = next;
-      settle(net, fee, resultEl,
+      settle(bet, net, fee, resultEl,
         `Number went to ${next} (${actualDir}) — won ${fmt(net)}`,
         `Number went to ${next} (${actualDir}) — lost ${fmt(bet-net-fee>0?bet-net:fee)}`);
     });
@@ -778,7 +929,7 @@ input[type=number], select{
           crashed = true;
           clearInterval(timer);
           if(!cashedOut){
-            settle(-bet, fee, resultEl, '', `Rocket crashed at ${secs}s — lost ${fmt(bet)}`);
+            settle(bet, -bet, fee, resultEl, '', `Rocket crashed at ${secs}s — lost ${fmt(bet)}`);
             cashBtn.disabled = true;
           }
           return;
@@ -793,7 +944,7 @@ input[type=number], select{
         clearInterval(timer);
         const mult = multForSeconds(secs);
         const net = bet*(mult-1);
-        settle(net, fee, resultEl, `Cashed out at ${mult.toFixed(1)}× (${secs}s) — won ${fmt(net)}`, '');
+        settle(bet, net, fee, resultEl, `Cashed out at ${mult.toFixed(1)}× (${secs}s) — won ${fmt(net)}`, '');
         cashBtn.disabled = true;
       }, { once:true });
     });
@@ -829,7 +980,7 @@ input[type=number], select{
       else { color = 'Green'; value = 0; }
       const valGuess = parseInt(document.getElementById('valueInput2').value, 10);
       if(color === 'Green'){
-        settle(-bet, fee, resultEl, '', `Landed on Green (0) — the Dealer takes all, lost ${fmt(bet)}`);
+        settle(bet, -bet, fee, resultEl, '', `Landed on Green (0) — the Dealer takes all, lost ${fmt(bet)}`);
         return;
       }
       const colorHit = selColor === color;
@@ -842,7 +993,7 @@ input[type=number], select{
       else mult = 0.5;
       const net = bet*(mult-1);
       const win = mult >= 1;
-      settle(net, fee, resultEl,
+      settle(bet, net, fee, resultEl,
         `Landed on ${color} ${value} — won ${fmt(net)}`,
         `Landed on ${color} ${value} — lost ${fmt(bet-net-fee>0?bet-net:bet)}`);
     });
@@ -871,7 +1022,7 @@ input[type=number], select{
       if(reels[0]===reels[1] && reels[1]===reels[2]){
         net = payouts[reels[0]]; win = true;
       }
-      settle(net, fee, resultEl,
+      settle(bet, net, fee, resultEl,
         `${reels.join(' ')} — triple match, won ${fmt(net)}`,
         `${reels.join(' ')} — no match, paid ${fmt(fee)} to play`);
     });
@@ -910,7 +1061,7 @@ input[type=number], select{
       const win = Math.random() < 0.01;
       const mult = win ? picked.mult : 0.5;
       const net = bet*(mult-1);
-      settle(net, fee, resultEl,
+      settle(bet, net, fee, resultEl,
         `Lottery hit! Won ${fmt(net)}`,
         `No match — money halved, lost ${fmt(bet-net-fee>0?bet-net:bet-net)}`);
     });
@@ -943,7 +1094,7 @@ input[type=number], select{
       const win = winner === picked;
       const mult = win ? 3 : 0.5;
       const net = bet*(mult-1);
-      settle(net, fee, resultEl,
+      settle(bet, net, fee, resultEl,
         `Buddy ${winner} won — you picked right, won ${fmt(net)}`,
         `Buddy ${winner} won — you picked ${picked}, lost ${fmt(bet-net-fee>0?bet-net:bet-net)}`);
     });
@@ -981,7 +1132,7 @@ input[type=number], select{
       ) outcome = 'win'; else outcome = 'lose';
       const mult = outcome==='win' ? 2 : outcome==='draw' ? 1.5 : 0.75;
       const net = bet*(mult-1);
-      settle(net, fee, resultEl,
+      settle(bet, net, fee, resultEl,
         `Dealer played ${house} — ${outcome==='draw'?'draw, both sides get 50% back':'you win'}, net ${fmt(net)}`,
         `Dealer played ${house} — you lose, net ${fmt(net)}`);
     });
@@ -1053,22 +1204,22 @@ input[type=number], select{
       function resolve(){
         done = true; btnsEl.innerHTML = '';
         if(total > 21){
-          settle(-bet, fee, resultEl, '', `You busted at ${total} — lost ${fmt(bet)}`);
+          settle(bet, -bet, fee, resultEl, '', `You busted at ${total} — lost ${fmt(bet)}`);
           return;
         }
         const houseTotal = playHouseHand();
         if(houseTotal > 21){
           const mult = bjMultFor(total);
           const net = bet*(mult-1);
-          settle(net, fee, resultEl, `You: ${total} — Dealer busted at ${houseTotal} — won ${fmt(net)}`, '');
+          settle(bet, net, fee, resultEl, `You: ${total} — Dealer busted at ${houseTotal} — won ${fmt(net)}`, '');
         } else if(total > houseTotal){
           const mult = bjMultFor(total);
           const net = bet*(mult-1);
-          settle(net, fee, resultEl, `You: ${total} vs Dealer: ${houseTotal} — won ${fmt(net)}`, '');
+          settle(bet, net, fee, resultEl, `You: ${total} vs Dealer: ${houseTotal} — won ${fmt(net)}`, '');
         } else if(total === houseTotal){
-          settle(0, fee, resultEl, `Push at ${total} — bet returned`, `Push at ${total} — bet returned`);
+          settle(bet, 0, fee, resultEl, `Push at ${total} — bet returned`, `Push at ${total} — bet returned`);
         } else {
-          settle(-bet, fee, resultEl, '', `You: ${total} vs Dealer: ${houseTotal} — lost ${fmt(bet)}`);
+          settle(bet, -bet, fee, resultEl, '', `You: ${total} vs Dealer: ${houseTotal} — lost ${fmt(bet)}`);
         }
       }
       function handle(action){
@@ -1114,14 +1265,14 @@ input[type=number], select{
         pushBtn.addEventListener('click', () => {
           const survived = Math.random() < Math.min(0.97, SQUID_SURVIVE[round] + winBonus());
           if(!survived){
-            settle(-bet, fee, resultEl, '', `Eliminated in Game ${round+1} — lost ${fmt(bet)}`);
+            settle(bet, -bet, fee, resultEl, '', `Eliminated in Game ${round+1} — lost ${fmt(bet)}`);
             btnsEl.innerHTML = ''; statusDisp.textContent = 'Eliminated.';
             return;
           }
           round++;
           if(round >= 6){
             const net = bet*(SQUID_MULTS[5]-1);
-            settle(net, fee, resultEl, `Survived all 6 Games — won ${fmt(net)}`, '');
+            settle(bet, net, fee, resultEl, `Survived all 6 Games — won ${fmt(net)}`, '');
             btnsEl.innerHTML = ''; statusDisp.textContent = 'Survived every game!';
             return;
           }
@@ -1134,7 +1285,7 @@ input[type=number], select{
           cashBtn.textContent = `Cash Out (${SQUID_MULTS[round-1].toFixed(2)}×)`;
           cashBtn.addEventListener('click', () => {
             const net = bet*(SQUID_MULTS[round-1]-1);
-            settle(net, fee, resultEl, `Cashed out after Game ${round} — won ${fmt(net)}`, '');
+            settle(bet, net, fee, resultEl, `Cashed out after Game ${round} — won ${fmt(net)}`, '');
             btnsEl.innerHTML = ''; statusDisp.textContent = 'Cashed out.';
           });
           btnsEl.appendChild(cashBtn);
@@ -1267,7 +1418,7 @@ input[type=number], select{
       const result = Math.random() < 0.5 ? 'Heads' : 'Tails';
       const win = result === picked;
       const net = win ? bet*3 : -bet;
-      settle(net, fee, resultEl,
+      settle(bet, net, fee, resultEl,
         `Landed ${result} — won ${fmt(net)}`,
         `Landed ${result} — lost ${fmt(bet)}`);
     });
@@ -1298,7 +1449,7 @@ input[type=number], select{
       const mult = mode === 'self' ? (hit ? 0.5 : 5) : (hit ? 0.75 : 3);
       const net = bet*(mult-1);
       const tag = mode === 'self' ? 'self-shot' : 'Dealer\'s shot';
-      settle(net, fee, resultEl,
+      settle(bet, net, fee, resultEl,
         `Click — survived (${tag}) — won ${fmt(net)}`,
         `Bang — hit (${tag}) — lost ${fmt(-net)}`);
     }
@@ -1321,7 +1472,7 @@ input[type=number], select{
       for(let i=0;i<PLINKO_WEIGHTS.length;i++){ if(r < PLINKO_WEIGHTS[i]){ idx = i; break; } r -= PLINKO_WEIGHTS[i]; }
       const mult = PLINKO_SLOTS[idx];
       const net = bet*(mult-1);
-      settle(net, fee, resultEl,
+      settle(bet, net, fee, resultEl,
         `Landed in the ${mult}× slot — won ${fmt(net)}`,
         `Landed in the ${mult}× slot — lost ${fmt(-net)}`);
     });
@@ -1426,6 +1577,16 @@ input[type=number], select{
 
   checkDailyEvents();
   renderAll();
+
+  // Keep enforcing loans and fees while the page stays open (not only on reload)
+  function liveCheck(){
+    const hadLoan = !!state.loan, before = state.balance;
+    checkDailyEvents();
+    if(hadLoan && !state.loan) renderAll();
+    else if(state.balance !== before) renderBalance();
+  }
+  setInterval(liveCheck, 30000);
+  document.addEventListener('visibilitychange', () => { if(!document.hidden) liveCheck(); });
 })();
 </script>
 </body>
